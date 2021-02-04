@@ -1,0 +1,239 @@
+rm(list=ls())
+library(matrixcalc)
+rho0<-function(time,alpha,taumax){
+  dg<-length(alpha)
+  sumelm<-0
+  for (kr in 1:dg){
+    elm<-(1/taumax)^dg*choose(dg,kr)*kr*time^(kr-1)*(taumax-time)^(dg-kr)*exp(alpha[kr])
+    sumelm<-elm+sumelm
+  }
+  return(sumelm)
+}
+Lambda0<-function(time,alpha,taumax){
+  dg<-length(alpha)
+  sumelm<-0
+  for (kr in 1:dg){
+    elm<-sum(exp(alpha[1:kr]))*choose(dg,kr)*(time/taumax)^kr*(1-time/taumax)^(dg-kr)
+    sumelm<-elm+sumelm
+  }
+  return(sumelm)
+}
+dLambda0<-function(time,alpha,taumax){
+  dg<-length(alpha)
+  elm<-rep(0,dg)
+  for (kr in 1:dg){
+    elm[kr]<-choose(dg,kr)*(time/taumax)^kr*(1-time/taumax)^(dg-kr)
+  }
+  exp(alpha)*rev(cumsum(rev(elm)))
+}
+drho0<-function(time,alpha,taumax){
+  dg<-length(alpha)
+  elm<-rep(0,dg)
+  for (kr in 1:dg){
+    elm[kr]<-(1/taumax)^dg*choose(dg,kr)*kr*time^(kr-1)*(taumax-time)^(dg-kr)*exp(alpha[kr])
+  }
+  elm
+}
+######################
+####Generate Data#####
+######################
+n.iter<-1000
+optvec<-varvec<-matrix(NA,nrow=n.iter,ncol=14)
+n.div<-0
+iter<-1
+while (iter<=n.iter){
+  n<-500
+  m<-3
+  beta<-c(1,1)
+  gamma<-c(1,1)
+  eta0<-0
+  eta1<-c(1,1)
+  z0<-z1<-z2<-cbind(rbinom(n,1,0.5),rnorm(n,0,1))
+  theta<-0.5
+  tau<-1+runif(n,0,4)
+  G<-function(x){x}
+  H<-function(x){x}
+  dG<-function(x){1}
+  ddG<-function(x){0}
+  dH<-function(x){1}
+  ddH<-function(x){0}
+  iG<-function(x){x}
+  iH<-function(x){x}
+  # G<-function(x){log(1+x)}
+  # H<-function(x){log(1+x)}
+  # dG<-function(x){1/(1+x)}
+  # ddG<-function(x){-1/(1+x)^2}
+  # dH<-function(x){1/(1+x)}
+  # ddH<-function(x){-1/(1+x)^2}
+  # iG<-function(x){exp(x)-1}
+  # iH<-function(x){exp(x)-1}
+  #Generate Frailty
+  w<-rgamma(n,shape=theta,scale=1/theta)
+  #Generate Terminal Event 
+  u<-runif(n,0,1)
+  D<-(iH(-log(u)/w)/exp(z2%*%gamma)/(0.2/1.25))^(1/1.25)
+  T<-pmin(D,tau)
+  Delta<-1*(T==D)
+  taumaxD<-max(T)
+  #Generate cases for A=1
+  probA<-exp(eta0+z0%*%eta1)/(1+exp(eta0+z0%*%eta1))
+  zeros<-c(NA)
+  data<-rep(0,7)
+  for (i in 1:n){
+    zeros[i]<-rbinom(1,1,probA[i])
+    if (zeros[i]==1){data<-rbind(data,c(i,T[i],0,0,z1[i,],Delta[i]))
+  #Generate Recurrent Event for A=2
+    }else{t<-c(0)
+    j<-1
+    while(t[j]<T[i]){
+      rand<-runif(1,0,1)
+      t[j+1]<-(iG((-log(rand)+w[i]*G(1.0/1.75*t[j]^1.75*exp(sum(beta*z1[i,]))))/w[i])/exp(sum(beta*z1[i,]))/(1.0/1.75))^(1/1.75)
+      j<-j+1
+    }
+    datatemp<-rbind(cbind(i,t,1,0,z1[i,1],z1[i,2],Delta[i]),c(i,T[i],0,0,z1[i,],Delta[i]))
+    data<-rbind(data,datatemp[-c(1,length(t)),])
+    }
+  }
+  data<-as.data.frame(x=data)
+  names(data)<-c("ID","time","event","origin","X1","X2","Delta")
+  data<-data[-1,]
+  rownames(data) <- NULL
+  taumaxR<-max(data$time)
+  ####Estimation#########
+  logl<-function(par){
+    beta_hat<-par[1:length(beta)]
+    gamma_hat<-par[(length(beta)+1):(length(beta)+length(gamma))]
+    theta_hat<-exp(par[length(beta)+length(gamma)+1])
+    lambda_hat<-par[(length(beta)+length(gamma)+2):(length(beta)+length(gamma)+1+m)]
+    r_hat<-par[(length(beta)+length(gamma)+2+m):(length(beta)+length(gamma)+1+2*m)]
+    eta0_hat<-par[(length(beta)+length(gamma)+2+2*m)]
+    eta1_hat<-par[(length(beta)+length(gamma)+3+2*m):(length(beta)+length(gamma)+2+2*m+length(eta1))]
+    sum01<-0
+    sum02<-0
+    sum03<-0
+    sum04<-0
+    for (i in 1:n){
+      datai<-data[data$ID==i,]
+      dataicensor<-datai[datai$event==0,]
+      dataievent<-datai[datai$event==1,]
+      Ti<-dataicensor$time
+      ni<-dim(dataievent)[1]
+      Deltai<-dataicensor$Delta
+      pi<-exp(eta0_hat+sum(eta1_hat*z0[i,]))/(1+exp(eta0_hat+sum(eta1_hat*z0[i,])))
+      if (ni>=1){
+        for (j in 1:ni){
+          add01<-log(dG(Lambda0(time=dataievent[j,]$time,alpha=r_hat,taumax=taumaxR)*exp(sum(beta_hat*z1[i,])))*rho0(time=dataievent[j,]$time,alpha=r_hat,taumax=taumaxR)*exp(sum(beta_hat*z1[i,])))
+          sum01<-sum01+add01
+        }
+        add03<-log(1-pi)-(ni+theta_hat+Deltai)*log(theta_hat+H(exp(sum(gamma_hat*z2[i,]))*Lambda0(time=Ti,alpha=lambda_hat,taumax=taumaxD))+G(exp(sum(beta_hat*z1[i,]))*Lambda0(time=Ti,alpha=r_hat,taumax=taumaxR)))
+      }else{
+        add03<-log(pi/(theta_hat+H(exp(sum(gamma_hat*z2[i,]))*Lambda0(time=Ti,alpha=lambda_hat,taumax=taumaxD)))^(theta_hat+Deltai)+(1-pi)/(theta_hat+H(exp(sum(gamma_hat*z2[i,]))*Lambda0(time=Ti,alpha=lambda_hat,taumax=taumaxD))+G(exp(sum(beta_hat*z1[i,]))*Lambda0(time=Ti,alpha=r_hat,taumax=taumaxR)))^(theta_hat+Deltai))
+      }
+      if (ni+Deltai>=1){
+        for (j in 1:(ni+Deltai)){
+          add04<-log(theta_hat+j-1)
+          sum04<-sum04+add04
+        }}
+      add02<-Deltai*log(dH(exp(sum(gamma_hat*z2[i,]))*Lambda0(time=Ti,alpha=lambda_hat,taumax=taumaxD))*exp(sum(gamma_hat*z2[i,]))*rho0(time=Ti,alpha=lambda_hat,taumax=taumaxD))
+      sum02<-add02+sum02
+      sum03<-add03+sum03
+    }
+    -(sum01+sum02+sum03+n*theta_hat*log(theta_hat)+sum04)
+  }
+  gr<-function(par){
+    beta_hat<-par[1:length(beta)]
+    gamma_hat<-par[(length(beta)+1):(length(beta)+length(gamma))]
+    theta_hat<-exp(par[length(beta)+length(gamma)+1])
+    lambda_hat<-par[(length(beta)+length(gamma)+2):(length(beta)+length(gamma)+1+m)]
+    r_hat<-par[(length(beta)+length(gamma)+2+m):(length(beta)+length(gamma)+1+2*m)]
+    eta0_hat<-par[(length(beta)+length(gamma)+2+2*m)]
+    eta1_hat<-par[(length(beta)+length(gamma)+3+2*m):(length(beta)+length(gamma)+2+2*m+length(eta1))]
+    dbetasum1<-dbetasum2<-dgammasum1<-dgammasum2<-rep(0,2)
+    drsum1<-drsum2<-dlambdasum1<-dlambdasum2<-rep(0,m)
+    dthetasum1<-dthetasum2<-0
+    deta0sum<-0
+    deta1sum<-c(0,0)
+    for (i in 1:n){
+      datai<-data[data$ID==i,]
+      dataicensor<-datai[datai$event==0,]
+      dataievent<-datai[datai$event==1,]
+      Ti<-dataicensor$time
+      ni<-dim(dataievent)[1]
+      Deltai<-dataicensor$Delta
+      pi<-exp(eta0_hat+sum(eta1_hat*z0[i,]))/(1+exp(eta0_hat+sum(eta1_hat*z0[i,])))
+      common_H<-H(exp(sum(gamma_hat*z2[i,]))*Lambda0(time=Ti,alpha=lambda_hat,taumax=taumaxD))
+      dcommon_H<-dH(exp(sum(gamma_hat*z2[i,]))*Lambda0(time=Ti,alpha=lambda_hat,taumax=taumaxD))
+      common_G<-G(exp(sum(beta_hat*z1[i,]))*Lambda0(time=Ti,alpha=r_hat,taumax=taumaxR))
+      dcommon_G<-dG(exp(sum(beta_hat*z1[i,]))*Lambda0(time=Ti,alpha=r_hat,taumax=taumaxR))
+      common2<-ddH(Lambda0(time=Ti,alpha=lambda_hat,taumax=taumaxD)*exp(sum(gamma_hat*z2[i,])))*exp(sum(gamma_hat*z2[i,]))/dcommon_H
+      common3<-(ni+theta_hat+Deltai)/(theta_hat+common_H+common_G)
+      common4<-pi/(theta_hat+common_H)^(theta_hat+Deltai)+(1-pi)/(theta_hat+common_H+common_G)^(theta_hat+Deltai)
+      if (ni>=1){
+        for (j in 1:ni){
+          common1<-ddG(Lambda0(time=dataievent[j,]$time,alpha=r_hat,taumax=taumaxR)*exp(sum(beta_hat*z1[i,])))*exp(sum(beta_hat*z1[i,]))/dG(Lambda0(time=dataievent[j,]$time,alpha=r_hat,taumax=taumaxR)*exp(sum(beta_hat*z1[i,])))
+          add_dbeta<-common1*Lambda0(time=dataievent[j,]$time,alpha=r_hat,taumax=taumaxR)*z1[i,]+z1[i,]
+          add_dr<-common1*dLambda0(time=dataievent[j,]$time,alpha=r_hat,taumax=taumaxR)+drho0(time=dataievent[j,]$time,alpha=r_hat,taumax=taumaxR)/rho0(time=dataievent[j,]$time,alpha=r_hat,taumax=taumaxR)
+          dbetasum1<-dbetasum1+add_dbeta
+          drsum1<-drsum1+add_dr
+        }
+        dbetasum2<-dbetasum2-common3*dcommon_G*Lambda0(time=Ti,alpha=r_hat,taumax=taumaxR)*exp(sum(beta_hat*z1[i,]))*z1[i,]
+        drsum2<-drsum2-common3*dcommon_G*dLambda0(time=Ti,alpha=r_hat,taumax=taumaxR)*exp(sum(beta_hat*z1[i,]))
+        dgammasum2<-dgammasum2-common3*dcommon_H*Lambda0(time=Ti,alpha=lambda_hat,taumax=taumaxD)*exp(sum(gamma_hat*z2[i,]))*z2[i,]
+        dlambdasum2<-dlambdasum2-common3*dcommon_H*dLambda0(time=Ti,alpha=lambda_hat,taumax=taumaxD)*exp(sum(gamma_hat*z2[i,]))
+        dthetasum2<-dthetasum2-common3-log(theta_hat+common_H+common_G)
+        dp<--1/(1-pi)
+        deta0sum<-deta0sum+pi*dp/(1+exp(eta0_hat+sum(eta1_hat*z0[i,])))
+        deta1sum<-deta1sum+pi*dp/(1+exp(eta0_hat+sum(eta1_hat*z0[i,])))*z0[i,]
+      }else{
+        dbetasum2<-dbetasum2-(1-pi)*(theta_hat+Deltai)*dcommon_G*Lambda0(time=Ti,alpha=r_hat,taumax=taumaxR)*exp(sum(beta_hat*z1[i,]))*z1[i,]/(theta_hat+common_H+common_G)^(theta_hat+Deltai+1)/common4
+        drsum2<-drsum2-(1-pi)*(theta_hat+Deltai)*dcommon_G*dLambda0(time=Ti,alpha=r_hat,taumax=taumaxR)*exp(sum(beta_hat*z1[i,]))/(theta_hat+common_H+common_G)^(theta_hat+Deltai+1)/common4
+        dgammasum2<-dgammasum2-(theta_hat+Deltai)*dcommon_H*Lambda0(time=Ti,alpha=lambda_hat,taumax=taumaxD)*exp(sum(gamma_hat*z2[i,]))*z2[i,]*(pi/(theta_hat+common_H)^(theta_hat+Deltai+1)+(1-pi)/(theta_hat+common_H+common_G)^(theta_hat+Deltai+1))/common4
+        dlambdasum2<-dlambdasum2-(theta_hat+Deltai)*dcommon_H*dLambda0(time=Ti,alpha=lambda_hat,taumax=taumaxD)*exp(sum(gamma_hat*z2[i,]))*(pi/(theta_hat+common_H)^(theta_hat+Deltai+1)+(1-pi)/(theta_hat+common_H+common_G)^(theta_hat+Deltai+1))/common4
+        dthetasum2<-dthetasum2+(pi*(theta_hat+common_H)^(-(theta_hat+Deltai))*(-(theta_hat+Deltai)/(theta_hat+common_H)-log(theta_hat+common_H))+(1-pi)*(theta_hat+common_H+common_G)^(-(theta_hat+Deltai))*(-(theta_hat+Deltai)/(theta_hat+common_H+common_G)-log(theta_hat+common_H+common_G)))/common4
+        dp<-(1/(theta_hat+common_H)^(theta_hat+Deltai)-1/(theta_hat+common_H+common_G)^(theta_hat+Deltai))/common4
+        deta0sum<-deta0sum+pi*dp/(1+exp(eta0_hat+sum(eta1_hat*z0[i,])))
+        deta1sum<-deta1sum+pi*dp/(1+exp(eta0_hat+sum(eta1_hat*z0[i,])))*z0[i,]
+      }
+      if (ni+Deltai>=1){
+        for (j in 1:(ni+Deltai)){
+          add_dtheta<-1/(theta_hat+j-1)
+          dthetasum1<-dthetasum1+add_dtheta
+        }}
+      add_dgamma<-Deltai*(common2*Lambda0(time=Ti,alpha=lambda_hat,taumax=taumaxD)*z2[i,]+z2[i,])
+      add_dlambda<-Deltai*(common2*dLambda0(time=Ti,alpha=lambda_hat,taumax=taumaxD)+drho0(time=Ti,alpha=lambda_hat,taumax=taumaxD)/rho0(time=Ti,alpha=lambda_hat,taumax=taumaxD))
+      dgammasum1<-dgammasum1+add_dgamma
+      dlambdasum1<-dlambdasum1+add_dlambda
+    }
+    dbeta<-dbetasum1+dbetasum2
+    dgamma<-dgammasum1+dgammasum2
+    dtheta<-(dthetasum1+dthetasum2+n+n*log(theta_hat))*theta_hat
+    dr<-drsum1+drsum2
+    dlambda<-dlambdasum1+dlambdasum2
+    deta0<-deta0sum
+    deta1<-deta1sum
+    -c(dbeta,dgamma,dtheta,dlambda,dr,deta0,deta1)
+  }
+  par0<-c(rep(0,5),seq(-1,1,length.out=m),seq(-1,1,length.out=m),rep(0,3))
+  optresult<-optim(logl,par=par0,method="BFGS",gr=gr,hessian=TRUE)
+  optvec[iter,]<-c(optresult$par)
+  J<-optresult$hessian
+    varvec[iter,]<-diag(solve(J,tol=1e-30))
+    iter<-iter+1
+  }
+
+param<-c("beta1","beta2","gamma1","gamma2","eta0","eta11","eta12","theta")
+bias<-c(colMeans(optvec[,1:4])-c(beta,gamma),colMeans(optvec[,12:14])-c(eta0,eta1),mean(exp(optvec[,5]))-theta)
+ese<-c(sd(optvec[,1]),sd(optvec[,2]),sd(optvec[,3]),sd(optvec[,4]),sd(optvec[,12]),sd(optvec[,13]),sd(optvec[,14]),sd(exp(optvec[,5])))
+ase<-c(colMeans(sqrt(varvec[,1:4])),colMeans(sqrt(varvec[,12:14])), mean(sqrt((exp(optvec[,5]))^2*varvec[,5])))
+cp<-c(sum(optvec[,1]-1.96*sqrt(varvec[,1])<=beta[1] & optvec[,1]+1.96*sqrt(varvec[,1])>=beta[1])/n.iter,
+      sum(optvec[,2]-1.96*sqrt(varvec[,2])<=beta[2] & optvec[,2]+1.96*sqrt(varvec[,2])>=beta[2])/n.iter,
+      sum(optvec[,3]-1.96*sqrt(varvec[,3])<=gamma[1] & optvec[,3]+1.96*sqrt(varvec[,3])>=gamma[1])/n.iter,
+      sum(optvec[,4]-1.96*sqrt(varvec[,4])<=gamma[2] & optvec[,4]+1.96*sqrt(varvec[,4])>=gamma[2])/n.iter,
+      sum(optvec[,12]-1.96*sqrt(varvec[,12])<= eta0 & optvec[,12]+1.96*sqrt(varvec[,12])>=eta0)/n.iter,
+      sum(optvec[,13]-1.96*sqrt(varvec[,13])<= eta1[1] & optvec[,13]+1.96*sqrt(varvec[,13])>=eta1[1])/n.iter,
+      sum(optvec[,14]-1.96*sqrt(varvec[,14])<= eta1[2] & optvec[,14]+1.96*sqrt(varvec[,14])>=eta1[2])/n.iter,
+      sum(optvec[,5]-1.96*sqrt(varvec[,5])<=log(theta) & optvec[,5]+1.96*sqrt(varvec[,5])>=log(theta))/n.iter
+)
+
+summary_table<-data.frame(PARAM=param,BIAS=bias,ESE=ese,ASE=ase,CP=cp)
+summary_table
