@@ -223,8 +223,8 @@ while (iter<=n.iter){
 
 param<-c("beta1","beta2","gamma1","gamma2","eta0","eta11","eta12","theta")
 bias<-c(colMeans(optvec[,1:4])-c(beta,gamma),colMeans(optvec[,12:14])-c(eta0,eta1),mean(exp(optvec[,5]))-theta)
-ese<-c(sd(optvec[,1]),sd(optvec[,2]),sd(optvec[,3]),sd(optvec[,4]),sd(optvec[,12]),sd(optvec[,13]),sd(optvec[,14]),sd(exp(optvec[,5])))
-ase<-c(colMeans(sqrt(varvec[,1:4])),colMeans(sqrt(varvec[,12:14])), mean(sqrt((exp(optvec[,5]))^2*varvec[,5])))
+se<-c(sd(optvec[,1]),sd(optvec[,2]),sd(optvec[,3]),sd(optvec[,4]),sd(optvec[,12]),sd(optvec[,13]),sd(optvec[,14]),sd(exp(optvec[,5])))
+ese<-c(colMeans(sqrt(varvec[,1:4])),colMeans(sqrt(varvec[,12:14])), mean(sqrt((exp(optvec[,5]))^2*varvec[,5])))
 cp<-c(sum(optvec[,1]-1.96*sqrt(varvec[,1])<=beta[1] & optvec[,1]+1.96*sqrt(varvec[,1])>=beta[1])/n.iter,
       sum(optvec[,2]-1.96*sqrt(varvec[,2])<=beta[2] & optvec[,2]+1.96*sqrt(varvec[,2])>=beta[2])/n.iter,
       sum(optvec[,3]-1.96*sqrt(varvec[,3])<=gamma[1] & optvec[,3]+1.96*sqrt(varvec[,3])>=gamma[1])/n.iter,
@@ -235,5 +235,5 @@ cp<-c(sum(optvec[,1]-1.96*sqrt(varvec[,1])<=beta[1] & optvec[,1]+1.96*sqrt(varve
       sum(optvec[,5]-1.96*sqrt(varvec[,5])<=log(theta) & optvec[,5]+1.96*sqrt(varvec[,5])>=log(theta))/n.iter
 )
 
-summary_table<-data.frame(PARAM=param,BIAS=bias,ESE=ese,ASE=ase,CP=cp)
+summary_table<-data.frame(PARAM=param,BIAS=bias,SE=se,ESE=ese,CP=cp)
 summary_table
